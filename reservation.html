@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>桌号预约系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .timeline-track { position: relative; height: 22px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
+    .timeline-occupied { position: absolute; height: 100%; background: #93c5fd; border-radius: 2px; top: 0; }
+    .time-row { position: relative; user-select: none; }
+    .time-row.selected { background: #dbeafe; }
+    .time-row.selected::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #2563eb; }
+    .time-row.occupied { background: #f9fafb; pointer-events: none; }
+    .slide-up { animation: slideUp 0.25s ease-out; }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; position: absolute; left: 0; top: 0; width: 100%; height: 100%; cursor: pointer; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+  <!-- 首页：桌号列表 -->
+  <div id="homeView" class="min-h-screen pb-6">
+    <header class="bg-white px-4 py-3 flex items-center sticky top-0 z-10 shadow-sm">
+      <button class="p-2 -ml-2 text-gray-700">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <h1 class="text-lg font-semibold ml-1">桌号预约</h1>
+    </header>
+
+    <!-- 日期与筛选栏 -->
+    <div class="bg-white px-4 py-3 flex items-center justify-between border-b border-gray-100">
+      <div class="relative flex items-center gap-1">
+        <input type="date" id="dateInput" class="absolute inset-0 opacity-0 w-full h-full" onchange="changeDate(this.value)">
+        <span id="dateDisplay" class="text-base font-medium text-gray-900"></span>
+        <svg class="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <span class="text-sm text-gray-500">共 8 个桌号</span>
+    </div>
+
+    <!-- 桌号卡片列表 -->
+    <div id="tableList" class="mt-2 bg-white divide-y divide-gray-100"></div>
+  </div>
+
+  <!-- 详情页：时间选择 -->
+  <div id="detailView" class="hidden fixed inset-0 bg-white z-20 flex flex-col">
+    <header class="px-4 py-3 flex items-center gap-3 border-b border-gray-100 bg-white shrink-0">
+      <button onclick="backToHome()" class="p-2 -ml-2 text-gray-700">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div>
+        <h2 id="detailTitle" class="text-lg font-semibold leading-tight"></h2>
+        <p class="text-xs text-gray-500 mt-0.5">请选择需预定的时间</p>
+      </div>
+    </header>
+
+    <div id="timeContainer" class="flex-1 overflow-y-auto overscroll-contain p-4">
+      <div class="bg-gray-50 rounded-xl p-5">
+        <div class="mb-4">
+          <label class="block text-sm text-gray-600 mb-1.5">开始时间</label>
+          <input type="time" id="startTimeInput" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+        </div>
+        <div class="mb-6">
+          <label class="block text-sm text-gray-600 mb-1.5">结束时间</label>
+          <input type="time" id="endTimeInput" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+        </div>
+        <div class="mb-4 text-xs text-gray-500">
+          <p>预约时间范围：</p>
+          <p>周一至周五：18:00 - 23:00</p>
+          <p>周末：11:00 - 23:00</p>
+        </div>
+        <div class="flex gap-3">
+          <button onclick="checkTimeSelection()" class="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-medium text-sm shadow-sm active:bg-blue-700">确认选择</button>
+          <button onclick="cancelSelection()" class="flex-1 py-2.5 border border-gray-300 rounded-xl text-gray-700 font-medium text-sm">取消</button>
+        </div>
+      </div>
+      
+      <!-- 已预约信息 -->
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold text-gray-700 mb-3">已预约时段</h3>
+        <div id="existingReservations" class="space-y-2"></div>
+      </div>
+    </div>
+
+    <!-- 底部确认栏 -->
+    <div id="bookingBar" class="hidden border-t border-gray-100 bg-white p-4 shrink-0">
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-xs text-gray-500 mb-0.5">已选择时段</div>
+          <div id="selectedTimeRange" class="text-sm font-semibold text-gray-900 truncate"></div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="cancelSelection()" class="px-3 py-2 text-sm text-gray-600 active:text-gray-900">取消</button>
+          <button onclick="showForm()" class="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium shadow-sm active:bg-blue-700">申请预定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 预约信息表单 -->
+  <div id="formModal" class="hidden fixed inset-0 z-30 bg-black/40 flex items-end sm:items-center justify-center">
+    <div class="bg-white w-full sm:w-[400px] sm:rounded-2xl rounded-t-2xl p-6 slide-up">
+      <h3 class="text-lg font-semibold mb-5">填写预约信息</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-gray-600 mb-1.5">姓名</label>
+          <input type="text" id="inputName" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入姓名">
+        </div>
+        <div>
+          <label class="block text-sm text-gray-600 mb-1.5">手机号</label>
+          <input type="tel" id="inputPhone" maxlength="11" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入手机号">
+        </div>
+        <div class="pt-2 flex gap-3">
+          <button onclick="closeForm()" class="flex-1 py-2.5 border border-gray-300 rounded-xl text-gray-700 font-medium text-sm">取消</button>
+          <button onclick="submitBooking()" class="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-medium text-sm shadow-sm active:bg-blue-700">确认预约</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 取消预约表单 -->
+  <div id="cancelModal" class="hidden fixed inset-0 z-30 bg-black/40 flex items-end sm:items-center justify-center">
+    <div class="bg-white w-full sm:w-[400px] sm:rounded-2xl rounded-t-2xl p-6 slide-up">
+      <h3 class="text-lg font-semibold mb-5">取消预约</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-gray-600 mb-1.5">姓名</label>
+          <input type="text" id="cancelName" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入预约时的姓名">
+        </div>
+        <div>
+          <label class="block text-sm text-gray-600 mb-1.5">手机号</label>
+          <input type="tel" id="cancelPhone" maxlength="11" class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="请输入预约时的手机号">
+        </div>
+        <div class="pt-2 flex gap-3">
+          <button onclick="closeCancelForm()" class="flex-1 py-2.5 border border-gray-300 rounded-xl text-gray-700 font-medium text-sm">取消</button>
+          <button onclick="cancelBooking()" class="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-medium text-sm shadow-sm active:bg-red-700">确认取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===================== 数据层 =====================
+    let tables = [];
+    let currentDate = new Date().toISOString().split('T')[0];
+    let currentTableId = null;
+    let reservations = [];
+
+    // API基础URL
+    const API_BASE_URL = 'http://localhost:3000/api';
+
+    // 加载桌号列表
+    async function loadTables() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/tables`);
+        if (!response.ok) throw new Error('加载桌号失败');
+        tables = await response.json();
+        return tables;
+      } catch (error) {
+        console.error('加载桌号失败:', error);
+        // 如果API调用失败，使用默认桌号
+        return Array.from({length: 8}, (_, i) => ({ id: i + 1, name: `${i + 1}号桌` }));
+      }
+    }
+
+    // 加载预约数据
+    async function loadReservations(date, tableId) {
+      try {
+        let url = `${API_BASE_URL}/reservations`;
+        const params = new URLSearchParams();
+        if (date) params.append('date', date);
+        if (tableId) params.append('tableId', tableId);
+        if (params.toString()) url += `?${params.toString()}`;
+        
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('加载预约数据失败');
+        return await response.json();
+      } catch (error) {
+        console.error('加载预约数据失败:', error);
+        return [];
+      }
+    }
+
+    // 保存预约
+    async function saveReservation(reservation) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/reservations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(reservation)
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || '保存预约失败');
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error('保存预约失败:', error);
+        throw error;
+      }
+    }
+
+    // 取消预约
+    async function cancelReservation(name, phone) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/reservations`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ name, phone })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || '取消预约失败');
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error('取消预约失败:', error);
+        throw error;
+      }
+    }
+
+    // ===================== 时间工具 =====================
+    function getDayConfig(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      const day = d.getDay(); // 0=周日, 6=周六
+      const isWeekend = (day === 0 || day === 6);
+      return {
+        startHour: isWeekend ? 11 : 18,
+        endHour: 23,
+        isWeekend,
+        label: isWeekend ? '周末' : '工作日'
+      };
+    }
+
+    function getSlots(dateStr) {
+      const cfg = getDayConfig(dateStr);
+      const slots = [];
+      for (let h = cfg.startHour; h < cfg.endHour; h++) {
+        slots.push(`${String(h).padStart(2, '0')}:00`);
+        slots.push(`${String(h).padStart(2, '0')}:30`);
+      }
+      slots.push(`${String(cfg.endHour).padStart(2, '0')}:00`);
+      return slots;
+    }
+
+    function timeToMinutes(t) {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function formatDateLabel(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      const weeks = ['日', '一', '二', '三', '四', '五', '六'];
+      return `${d.getMonth() + 1}月${d.getDate()}日 周${weeks[d.getDay()]}`;
+    }
+
+    // ===================== 首页渲染 =====================
+    function renderHeader() {
+      document.getElementById('dateDisplay').textContent = formatDateLabel(currentDate);
+      document.getElementById('dateInput').value = currentDate;
+    }
+
+    function changeDate(val) {
+      currentDate = val;
+      renderHeader();
+      renderTableList();
+    }
+
+    function getReservations(date, tableId) {
+      return reservations.filter(r => r.date === date && r.tableId === tableId);
+    }
+
+    async function renderTableList() {
+      const container = document.getElementById('tableList');
+      container.innerHTML = '<div class="flex items-center justify-center py-10"><div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div></div>';
+      
+      try {
+        // 加载桌号列表
+        const loadedTables = await loadTables();
+        tables = loadedTables;
+        
+        const cfg = getDayConfig(currentDate);
+        const dayStartMin = cfg.startHour * 60;
+        const totalMin = (cfg.endHour - cfg.startHour) * 60;
+
+        container.innerHTML = '';
+
+        tables.forEach(table => {
+          // 加载该桌号的预约信息
+          loadReservations(currentDate, table.id).then(resv => {
+            const div = document.createElement('div');
+            div.className = 'px-4 py-4 active:bg-gray-50 transition-colors cursor-pointer';
+            div.onclick = () => openDetail(table.id);
+
+            // 横向占用条
+            let bars = '';
+            resv.forEach(r => {
+              const s = timeToMinutes(r.startTime);
+              const e = timeToMinutes(r.endTime);
+              const left = ((s - dayStartMin) / totalMin) * 100;
+              const width = ((e - s) / totalMin) * 100;
+              bars += `<div class="timeline-occupied" style="left:${left}%;width:${width}%" title="${r.startTime}-${r.endTime} ${maskName(r.name)} ${maskPhone(r.phone)}"></div>`;
+            });
+
+            div.innerHTML = `
+              <div class="flex items-center justify-between mb-2.5">
+                <div class="flex items-center gap-2">
+                  <span class="text-base font-semibold text-gray-900">${table.name}</span>
+                  <span class="text-[11px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">须审批</span>
+                </div>
+                <span class="text-xs text-gray-400">${resv.length} 个预约</span>
+              </div>
+              <div class="timeline-track">
+                ${bars}
+              </div>
+              <div class="flex justify-between mt-1.5 text-[10px] text-gray-400 font-medium">
+                <span>${cfg.startHour}:00</span>
+                <span>${cfg.endHour}:00</span>
+              </div>
+            `;
+            container.appendChild(div);
+          });
+        });
+      } catch (error) {
+        console.error('渲染桌号列表失败:', error);
+        container.innerHTML = '<div class="text-center py-10 text-gray-500">加载失败，请刷新页面重试</div>';
+      }
+    }
+
+    // ===================== 详情页渲染 =====================
+    function openDetail(tableId) {
+      currentTableId = tableId;
+      document.getElementById('homeView').classList.add('hidden');
+      document.getElementById('detailView').classList.remove('hidden');
+      document.getElementById('detailTitle').textContent = `${tableId}号桌`;
+      document.getElementById('bookingBar').classList.add('hidden');
+      renderDetail();
+    }
+
+    function backToHome() {
+      document.getElementById('detailView').classList.add('hidden');
+      document.getElementById('homeView').classList.remove('hidden');
+      currentTableId = null;
+      renderTableList();
+    }
+
+    async function renderDetail() {
+      const container = document.getElementById('existingReservations');
+      container.innerHTML = '<div class="flex items-center justify-center py-6"><div class="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div></div>';
+      
+      try {
+        const resv = await loadReservations(currentDate, currentTableId);
+        
+        if (resv.length === 0) {
+          container.innerHTML = '<div class="text-sm text-gray-400">暂无预约</div>';
+          return;
+        }
+
+        container.innerHTML = '';
+        resv.forEach(r => {
+          const div = document.createElement('div');
+          div.className = 'bg-gray-50 rounded-lg p-3';
+          div.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium text-gray-900">${r.startTime} - ${r.endTime}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-500">${maskName(r.name)} ${maskPhone(r.phone)}</span>
+                <button onclick="showCancelFormForReservation(${r.id})" class="text-xs text-red-600 font-medium">取消</button>
+              </div>
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      } catch (error) {
+        console.error('渲染详情失败:', error);
+        container.innerHTML = '<div class="text-sm text-gray-500">加载失败，请刷新页面重试</div>';
+      }
+    }
+
+    function checkTimeSelection() {
+      const startTime = document.getElementById('startTimeInput').value;
+      const endTime = document.getElementById('endTimeInput').value;
+      
+      if (!startTime || !endTime) {
+        alert('请选择开始时间和结束时间');
+        return;
+      }
+      
+      if (startTime >= endTime) {
+        alert('结束时间必须晚于开始时间');
+        return;
+      }
+      
+      // 检查时间范围是否在允许的范围内
+      const d = new Date(currentDate + 'T00:00:00');
+      const day = d.getDay(); // 0=周日, 6=周六
+      const isWeekend = (day === 0 || day === 6);
+      
+      const startMinutes = timeToMinutes(startTime);
+      const endMinutes = timeToMinutes(endTime);
+      
+      if (isWeekend) {
+        // 周末：11:00 - 23:00
+        const weekendStart = timeToMinutes('11:00');
+        const weekendEnd = timeToMinutes('23:00');
+        
+        if (startMinutes < weekendStart || endMinutes > weekendEnd) {
+          alert('周末预约时间范围为 11:00 - 23:00');
+          return;
+        }
+      } else {
+        // 工作日：18:00 - 23:00
+        const weekdayStart = timeToMinutes('18:00');
+        const weekdayEnd = timeToMinutes('23:00');
+        
+        if (startMinutes < weekdayStart || endMinutes > weekdayEnd) {
+          alert('工作日预约时间范围为 18:00 - 23:00');
+          return;
+        }
+      }
+      
+      const resv = getReservations(currentDate, currentTableId);
+      const newStart = timeToMinutes(startTime);
+      const newEnd = timeToMinutes(endTime);
+      
+      for (const r of resv) {
+        const existingStart = timeToMinutes(r.startTime);
+        const existingEnd = timeToMinutes(r.endTime);
+        
+        if (newStart < existingEnd && newEnd > existingStart) {
+          alert('所选时间与已有预约冲突');
+          return;
+        }
+      }
+      
+      showBookingBar(startTime, endTime);
+    }
+
+    function showBookingBar(start, end) {
+      const bar = document.getElementById('bookingBar');
+      document.getElementById('selectedTimeRange').textContent = `${currentDate}  ${start} - ${end}`;
+      bar.dataset.start = start;
+      bar.dataset.end = end;
+      bar.classList.remove('hidden');
+    }
+
+    function cancelSelection() {
+      document.getElementById('startTimeInput').value = '';
+      document.getElementById('endTimeInput').value = '';
+      document.getElementById('bookingBar').classList.add('hidden');
+    }
+
+    // ===================== 信息脱敏 =====================
+    function maskName(name) {
+      if (!name || name.length <= 1) return name;
+      return '**' + name.charAt(name.length - 1);
+    }
+
+    function maskPhone(phone) {
+      if (!phone || phone.length < 4) return phone;
+      return '****' + phone.slice(-4);
+    }
+
+    // ===================== 表单与提交 =====================
+    function showForm() {
+      document.getElementById('formModal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('inputName').focus(), 100);
+    }
+
+    function closeForm() {
+      document.getElementById('formModal').classList.add('hidden');
+      document.getElementById('inputName').value = '';
+      document.getElementById('inputPhone').value = '';
+    }
+
+    async function submitBooking() {
+      const name = document.getElementById('inputName').value.trim();
+      const phone = document.getElementById('inputPhone').value.trim();
+      const bar = document.getElementById('bookingBar');
+      const start = bar.dataset.start;
+      const end = bar.dataset.end;
+
+      if (!name || !phone) { alert('请填写完整信息'); return; }
+      if (!/^\d{11}$/.test(phone)) { alert('请输入正确的11位手机号'); return; }
+
+      try {
+        await saveReservation({
+          date: currentDate,
+          tableId: currentTableId,
+          startTime: start,
+          endTime: end,
+          name,
+          phone
+        });
+
+        closeForm();
+        cancelSelection();
+        await renderDetail();
+        alert('预约成功');
+      } catch (error) {
+        alert(error.message || '预约失败，请重试');
+      }
+    }
+
+    // ===================== 取消预约 =====================
+    let currentCancelReservationId = null;
+
+    function showCancelForm() {
+      currentCancelReservationId = null;
+      document.getElementById('cancelModal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('cancelName').focus(), 100);
+    }
+
+    function showCancelFormForReservation(reservationId) {
+      currentCancelReservationId = reservationId;
+      document.getElementById('cancelModal').classList.remove('hidden');
+      setTimeout(() => document.getElementById('cancelName').focus(), 100);
+    }
+
+    function closeCancelForm() {
+      document.getElementById('cancelModal').classList.add('hidden');
+      document.getElementById('cancelName').value = '';
+      document.getElementById('cancelPhone').value = '';
+    }
+
+    async function cancelBooking() {
+      const name = document.getElementById('cancelName').value.trim();
+      const phone = document.getElementById('cancelPhone').value.trim();
+
+      if (!name || !phone) { alert('请填写完整信息'); return; }
+      if (!/^\d{11}$/.test(phone)) { alert('请输入正确的11位手机号'); return; }
+
+      try {
+        await cancelReservation(name, phone);
+        
+        closeCancelForm();
+        await renderTableList();
+        if (currentTableId) {
+          await renderDetail();
+        }
+        alert('预约已成功取消');
+      } catch (error) {
+        alert(error.message || '取消预约失败，请重试');
+      }
+    }
+
+    // ===================== 初始化 =====================
+    renderHeader();
+    // 加载桌号列表并渲染
+    loadTables().then(() => {
+      renderTableList();
+    }).catch(error => {
+      console.error('初始化失败:', error);
+      renderTableList();
+    });
+  </script>
+</body>
+</html>
